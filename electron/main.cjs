@@ -44,9 +44,9 @@ function startServer() {
     if (app.isPackaged) {
         // In production, use the bundled server in app.asar
         // The main process is in electron/dist/main.cjs
-        // The server is in server/dist/server.cjs
-        // Relative path: ../../server/dist/server.cjs
-        serverPath = path.join(__dirname, '../../server/dist/server.cjs');
+        // The server is in server/cfg/server.cjs
+        // Relative path: ../../server/cfg/server.cjs
+        serverPath = path.join(__dirname, '../../server/cfg/server.cjs');
     } else {
         serverPath = path.join(__dirname, '../server/index.cjs');
     }

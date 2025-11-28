@@ -1,0 +1,9 @@
+{
+  "host": "localhost",
+  "user": "root",
+  "password": "Tar35700",
+  "database": "fuel_pos_electron",
+  "waitForConnections": true,
+  "connectionLimit": 10,
+  "queueLimit": 0
+}

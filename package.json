@@ -2,7 +2,7 @@
   "name": "FPOS",
   "productName": "FPOS",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "main": "electron/dist/main.cjs",
   "scripts": {
@@ -25,7 +25,7 @@
     "files": [
       "dist/**/*",
       "electron/dist/main.cjs",
-      "server/dist/server.cjs",
+      "server/cfg/server.cjs",
       "server/schema.sql",
       "server/migration_v1.sql",
       "package.json",
@@ -49,7 +49,7 @@
       "allowElevation": true
     },
     "asarUnpack": [
-      "server/dist/server.cjs"
+      "server/cfg/server.cjs"
     ],
     "publish": [
       {
