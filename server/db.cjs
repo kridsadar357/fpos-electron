@@ -7,7 +7,9 @@ dotenv.config();
 
 let pool;
 
-const configPath = path.join(__dirname, 'db_config.json');
+const configPath = process.env.USER_DATA_PATH
+    ? path.join(process.env.USER_DATA_PATH, 'db_config.json')
+    : path.join(__dirname, 'db_config.json');
 
 function getDbConfig() {
     if (fs.existsSync(configPath)) {

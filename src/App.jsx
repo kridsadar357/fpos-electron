@@ -1,6 +1,6 @@
 import React from 'react';
 import { Toaster } from 'react-hot-toast';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { HashRouter as Router, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { ShiftProvider } from './context/ShiftContext';
 import { SalesProvider } from './contexts/SalesContext';
@@ -54,14 +54,24 @@ function App() {
 
   if (configured === null) return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
 
+  if (configured === false) {
+    return (
+      <Router>
+        <Routes>
+          <Route path="*" element={<SetupWizard setConfigured={setConfigured} />} />
+        </Routes>
+        <Toaster />
+      </Router>
+    );
+  }
+
   return (
     <AuthProvider>
       <ShiftProvider>
         <SalesProvider>
           <Router>
             <Routes>
-              {!configured && <Route path="*" element={<SetupWizard />} />}
-              <Route path="/setup" element={<SetupWizard />} />
+              <Route path="/setup" element={<SetupWizard setConfigured={setConfigured} />} />
               <Route path="/login" element={<Login />} />
               <Route path="/menu" element={<ProtectedRoute><Menu /></ProtectedRoute>} />
               <Route path="/shift" element={<ProtectedRoute><Shift /></ProtectedRoute>} />

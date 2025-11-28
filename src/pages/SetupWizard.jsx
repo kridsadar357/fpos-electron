@@ -3,17 +3,20 @@ import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { FaDatabase, FaBuilding, FaGasPump, FaCheck, FaArrowRight, FaArrowLeft, FaInfoCircle } from 'react-icons/fa';
 
-const SetupWizard = () => {
+const SetupWizard = ({ setConfigured }) => {
     const navigate = useNavigate();
     const [step, setStep] = useState(1);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
 
+
+
     // Step 1: Database
+    // User requested default credentials: localhost / root / Tar35700 / fuel_pos_electron
     const [dbConfig, setDbConfig] = useState({
         host: 'localhost',
         user: 'root',
-        password: '',
+        password: 'Tar35700',
         database: 'fuel_pos_electron'
     });
 
@@ -130,6 +133,11 @@ const SetupWizard = () => {
             // Need to fetch products first to get IDs
             const res = await fetch('http://localhost:3001/api/products');
             const products = await res.json();
+
+            if (!Array.isArray(products)) {
+                throw new Error(products.error || 'Failed to fetch products');
+            }
+
             const fuelProducts = products.filter(p => p.type === 'fuel');
 
             for (const tank of tanks) {
@@ -138,16 +146,21 @@ const SetupWizard = () => {
                 // Find product ID
                 const product = fuelProducts.find(p => p.name === fuelName);
 
-                await fetch('http://localhost:3001/api/tanks', {
+                const res = await fetch('http://localhost:3001/api/tanks', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         name: tank.name,
+                        product_id: product?.id,
                         capacity: tank.capacity,
                         fuel_type: fuelName, // Legacy field, maybe not needed if we link ID
                         color: product?.color || '#EF4444'
                     })
                 });
+                if (!res.ok) {
+                    const errData = await res.json();
+                    throw new Error(errData.error || 'Failed to save tank');
+                }
             }
             setStep(5);
         } catch (err) {
@@ -184,20 +197,54 @@ const SetupWizard = () => {
                 fetch('http://localhost:3001/api/dispensers'),
                 fetch('http://localhost:3001/api/tanks')
             ]);
+
+            if (!pRes.ok) { const e = await pRes.json(); throw new Error('Failed to fetch products: ' + (e.error || pRes.statusText)); }
+            if (!dRes.ok) { const e = await dRes.json(); throw new Error('Failed to fetch dispensers: ' + (e.error || dRes.statusText)); }
+            if (!tRes.ok) { const e = await tRes.json(); throw new Error('Failed to fetch tanks: ' + (e.error || tRes.statusText)); }
+
             const products = await pRes.json();
             const dispensersList = await dRes.json();
             const tanksList = await tRes.json();
 
+            if (!Array.isArray(products)) throw new Error(products.error || 'Failed to fetch products');
+            if (!Array.isArray(dispensersList)) throw new Error(dispensersList.error || 'Failed to fetch dispensers');
+            if (!Array.isArray(tanksList)) throw new Error(tanksList.error || 'Failed to fetch tanks');
+
             for (const n of nozzles) {
                 const dispenser = dispensersList[n.dispenser_index]; // Assuming order is preserved
-                const tank = tanksList[n.tank_index];
+
+                // Match tank by name if possible, or fallback to index (but index is risky if sort order differs)
+                // Let's try to match by name if we have it in local state
+                const localTank = tanks[n.tank_index];
+                let tank = tanksList.find(t => t.name === localTank?.name);
+
+                // Fallback to index if name match fails (e.g. name changed? unlikely in wizard)
+                if (!tank && tanksList.length > n.tank_index) {
+                    // CAUTION: API returns DESC, local is ASC. 
+                    // If we rely on index, we must reverse the API list or find the correct one.
+                    // Since we don't know the ID mapping, name is the best bet.
+                    // If name match failed, we might be in trouble.
+                    // Let's just skip if not found and log error?
+                    console.warn(`Tank not found for index ${n.tank_index}`);
+                    continue;
+                }
+
+                if (!tank) {
+                    throw new Error(`Tank '${localTank?.name}' not found. Please go back and save tanks again.`);
+                }
 
                 // Find product from tank (we need to know which product is in which tank)
                 // In this simplified wizard, we assume tank.fuel_type matches product.name
-                const product = products.find(p => p.name === tank.fuel_type);
+                // OR better, use tank.product_id if available (which we just added!)
+                let product;
+                if (tank.product_id) {
+                    product = products.find(p => p.id === tank.product_id);
+                } else {
+                    product = products.find(p => p.name === tank.fuel_type);
+                }
 
                 if (dispenser && tank && product) {
-                    await fetch('http://localhost:3001/api/nozzles', {
+                    const res = await fetch('http://localhost:3001/api/nozzles', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -207,10 +254,17 @@ const SetupWizard = () => {
                             tank_id: tank.id
                         })
                     });
+                    if (!res.ok) {
+                        const errData = await res.json();
+                        throw new Error(errData.error || 'Failed to save nozzle');
+                    }
                 }
             }
 
             toast.success('Setup Complete!');
+            if (setConfigured) {
+                setConfigured(true);
+            }
             navigate('/login');
         } catch (err) {
             setError('Error saving nozzles: ' + err.message);

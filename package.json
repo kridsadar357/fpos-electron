@@ -4,7 +4,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "main": "electron/main.cjs",
+  "main": "electron/dist/main.cjs",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -13,7 +13,8 @@
     "electron": "electron .",
     "electron:dev": "concurrently \"cross-env BROWSER=none npm run dev\" \"wait-on http://localhost:5173 && cross-env ELECTRON_START_URL=http://localhost:5173 electron .\"",
     "start": "npm run electron:dev",
-    "dist": "npm run build && electron-builder"
+    "build:server": "node build-server.cjs",
+    "dist": "npm run build && npm run build:server && electron-builder"
   },
   "build": {
     "appId": "com.fuelpos.app",
@@ -23,17 +24,21 @@
     },
     "files": [
       "dist/**/*",
-      "electron/**/*",
-      "server/**/*",
+      "electron/dist/main.cjs",
+      "server/dist/server.cjs",
+      "server/schema.sql",
+      "server/migration_v1.sql",
       "package.json",
-      "node_modules/**/*"
+      "!node_modules/**/*"
     ],
     "win": {
       "target": [
         "nsis",
         "portable"
       ],
-      "icon": "public/favicon.ico"
+      "icon": "public/favicon.ico",
+      "verifyUpdateCodeSignature": false,
+      "forceCodeSigning": false
     },
     "nsis": {
       "oneClick": false,
@@ -44,8 +49,7 @@
       "allowElevation": true
     },
     "asarUnpack": [
-      "server/**/*",
-      "node_modules/**/*"
+      "server/dist/server.cjs"
     ],
     "publish": [
       {
@@ -86,6 +90,7 @@
     "cross-env": "^10.1.0",
     "electron": "^39.2.3",
     "electron-builder": "^26.0.12",
+    "esbuild": "^0.27.0",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",

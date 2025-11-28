@@ -1,6 +1,7 @@
 const { app, BrowserWindow } = require('electron');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, fork } = require('child_process');
+const fs = require('fs');
 
 let mainWindow;
 let serverProcess;
@@ -19,10 +20,17 @@ function createWindow() {
         },
     });
 
-    const startUrl = process.env.ELECTRON_START_URL || `file://${path.join(__dirname, '../dist/index.html')}`;
+    let startUrl;
+    if (app.isPackaged) {
+        startUrl = `file://${path.join(app.getAppPath(), 'dist/index.html')}`;
+    } else {
+        startUrl = process.env.ELECTRON_START_URL || `file://${path.join(__dirname, '../dist/index.html')}`;
+    }
+
     mainWindow.loadURL(startUrl);
 
-    if (process.env.ELECTRON_START_URL) {
+    // Open DevTools in dev mode or if requested
+    if (process.env.ELECTRON_START_URL || process.env.DEBUG_PROD === 'true') {
         mainWindow.webContents.openDevTools();
     }
 
@@ -34,19 +42,52 @@ function createWindow() {
 function startServer() {
     let serverPath;
     if (app.isPackaged) {
-        // In production, the server is unpacked to app.asar.unpacked/server
-        // app.getAppPath() returns .../resources/app.asar
-        // We need to replace app.asar with app.asar.unpacked
-        serverPath = path.join(app.getAppPath().replace('app.asar', 'app.asar.unpacked'), 'server/index.cjs');
+        // In production, use the bundled server in app.asar
+        // The main process is in electron/dist/main.cjs
+        // The server is in server/dist/server.cjs
+        // Relative path: ../../server/dist/server.cjs
+        serverPath = path.join(__dirname, '../../server/dist/server.cjs');
     } else {
         serverPath = path.join(__dirname, '../server/index.cjs');
     }
 
+    const userDataPath = app.getPath('userData');
+    const logPath = path.join(userDataPath, 'server.log');
+    const logStream = fs.createWriteStream(logPath, { flags: 'a' });
+
     console.log('Starting server from:', serverPath);
-    serverProcess = spawn('node', [serverPath], { stdio: 'inherit' });
+    console.log('Server logs will be written to:', logPath);
+
+    // Use fork instead of spawn('node') to ensure it works in production without system Node.js
+    // fork uses the Electron executable as the Node.js runtime.
+    serverProcess = fork(serverPath, [], {
+        stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+        env: { ...process.env, USER_DATA_PATH: userDataPath }
+    });
+
+    if (serverProcess.stdout) {
+        serverProcess.stdout.on('data', (data) => {
+            console.log(`[Server]: ${data}`);
+            logStream.write(`[STDOUT] ${data}`);
+        });
+    }
+
+    if (serverProcess.stderr) {
+        serverProcess.stderr.on('data', (data) => {
+            console.error(`[Server Error]: ${data}`);
+            logStream.write(`[STDERR] ${data}`);
+        });
+    }
 
     serverProcess.on('close', (code) => {
         console.log(`Server process exited with code ${code}`);
+        logStream.write(`[EXIT] Code ${code}\n`);
+        logStream.end();
+    });
+
+    serverProcess.on('error', (err) => {
+        console.error('Failed to start server process:', err);
+        logStream.write(`[SPAWN ERROR] ${err}\n`);
     });
 }
 
@@ -144,9 +185,4 @@ ipcMain.on('restart_app', () => {
 
 ipcMain.handle('get_version', () => {
     return app.getVersion();
-});
-
-// Check for updates when app is ready (optional, or trigger from UI)
-app.on('ready', () => {
-    // autoUpdater.checkForUpdatesAndNotify(); // Can enable auto check on startup
 });

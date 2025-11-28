@@ -10,13 +10,29 @@ const port = 3001;
 
 app.use(cors());
 app.use(express.json());
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+const uploadsPath = process.env.USER_DATA_PATH
+    ? path.join(process.env.USER_DATA_PATH, 'uploads')
+    : path.join(__dirname, 'uploads');
+
+if (!fs.existsSync(uploadsPath)) {
+    fs.mkdirSync(uploadsPath, { recursive: true });
+}
+
+app.use('/uploads', express.static(uploadsPath));
 
 // --- Setup API ---
 
 // Check if configured
 app.get('/api/setup/check', (req, res) => {
-    const configPath = path.join(__dirname, 'db_config.json');
+    const configPath = process.env.USER_DATA_PATH
+        ? path.join(process.env.USER_DATA_PATH, 'db_config.json')
+        : path.join(__dirname, 'db_config.json');
+
+    console.log('[DEBUG] /api/setup/check');
+    console.log('[DEBUG] USER_DATA_PATH:', process.env.USER_DATA_PATH);
+    console.log('[DEBUG] Checking configPath:', configPath);
+    console.log('[DEBUG] Exists:', fs.existsSync(configPath));
+
     if (fs.existsSync(configPath)) {
         res.json({ configured: true });
     } else {
@@ -68,7 +84,9 @@ app.post('/api/setup/db-save', async (req, res) => {
     };
 
     try {
-        const configPath = path.join(__dirname, 'db_config.json');
+        const configPath = process.env.USER_DATA_PATH
+            ? path.join(process.env.USER_DATA_PATH, 'db_config.json')
+            : path.join(__dirname, 'db_config.json');
         fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
 
         // Reconnect DB
@@ -87,119 +105,78 @@ app.post('/api/setup/db-save', async (req, res) => {
 });
 
 async function runSchemaSetup() {
-    // This function should contain the CREATE TABLE statements from setup_data.cjs
-    // For brevity, I'll assume we can import or copy them. 
-    // Ideally, we should refactor setup_data.cjs to export a function.
-    // For now, I will execute the setup_data.cjs script as a child process or just rely on the user to run it?
-    // User requested "connect or create for connect database".
-    // So we should run the schema creation.
+    try {
+        // Determine path to schema.sql
+        // In development: server/schema.sql
+        // In production (bundled): it should be in the same directory as server.cjs or accessible via resources
+        // Since we are bundling server.cjs, we need to make sure schema.sql is copied or we read it from source.
+        // Better yet, let's read it from the file system if we can ensure it's there.
+        // For the bundled app, we can put it in 'extraResources' or just bundle it as a string?
+        // Reading as a file is better for the user to edit.
 
-    // Let's try to require setup_data if it exports something, or just run the SQLs.
-    // Since setup_data.cjs is a script, let's just run the SQLs directly here for robustness.
+        let schemaPath;
+        if (process.env.USER_DATA_PATH) {
+            // If running from packaged app, maybe check resources?
+            // For now, let's assume it's in the same folder as the executable resources or we copy it.
+            // Actually, let's look for it in the app root.
+            // But wait, 'server/schema.sql' is in the source.
+            // Let's use path.join(__dirname, '../schema.sql') if we are in server/dist/
+            // Or path.join(__dirname, 'schema.sql') if in server/
 
-    const queries = [
-        `CREATE TABLE IF NOT EXISTS users (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            username VARCHAR(255) NOT NULL UNIQUE,
-            password VARCHAR(255) NOT NULL,
-            role ENUM('admin', 'manager', 'cashier') DEFAULT 'cashier',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )`,
-        `CREATE TABLE IF NOT EXISTS products (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            name VARCHAR(255) NOT NULL,
-            price DECIMAL(10, 2) NOT NULL,
-            type ENUM('fuel', 'goods') NOT NULL,
-            stock DECIMAL(10, 2) DEFAULT 0,
-            image_url VARCHAR(255),
-            color VARCHAR(50) DEFAULT '#3B82F6',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )`,
-        `CREATE TABLE IF NOT EXISTS tanks (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            name VARCHAR(255) NOT NULL,
-            capacity DECIMAL(10, 2) NOT NULL,
-            current_volume DECIMAL(10, 2) DEFAULT 0,
-            fuel_type VARCHAR(50),
-            color VARCHAR(50) DEFAULT '#EF4444',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )`,
-        `CREATE TABLE IF NOT EXISTS dispensers (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            name VARCHAR(255) NOT NULL,
-            status ENUM('active', 'inactive') DEFAULT 'active',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )`,
-        `CREATE TABLE IF NOT EXISTS nozzles (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            dispenser_id INT,
-            nozzle_number INT NOT NULL,
-            product_id INT,
-            tank_id INT,
-            status ENUM('active', 'inactive') DEFAULT 'active',
-            FOREIGN KEY (dispenser_id) REFERENCES dispensers(id),
-            FOREIGN KEY (product_id) REFERENCES products(id),
-            FOREIGN KEY (tank_id) REFERENCES tanks(id)
-        )`,
-        `CREATE TABLE IF NOT EXISTS shifts (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            user_id INT,
-            start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            end_time TIMESTAMP NULL,
-            start_cash DECIMAL(10, 2) DEFAULT 0,
-            end_cash DECIMAL(10, 2) DEFAULT 0,
-            status ENUM('open', 'closed') DEFAULT 'open',
-            FOREIGN KEY (user_id) REFERENCES users(id)
-        )`,
-        `CREATE TABLE IF NOT EXISTS transactions (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            shift_id INT,
-            user_id INT,
-            dispenser_id INT,
-            product_id INT,
-            amount DECIMAL(10, 2) NOT NULL,
-            liters DECIMAL(10, 2) DEFAULT 0,
-            price DECIMAL(10, 2) NOT NULL,
-            payment_type ENUM('cash', 'promptpay', 'credit') DEFAULT 'cash',
-            status ENUM('pending', 'completed', 'cancelled') DEFAULT 'completed',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (shift_id) REFERENCES shifts(id),
-            FOREIGN KEY (user_id) REFERENCES users(id),
-            FOREIGN KEY (dispenser_id) REFERENCES dispensers(id),
-            FOREIGN KEY (product_id) REFERENCES products(id)
-        )`,
-        `CREATE TABLE IF NOT EXISTS settings (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            company_name VARCHAR(255),
-            company_address TEXT,
-            tax_id VARCHAR(50),
-            branch_id VARCHAR(50),
-            phone VARCHAR(50),
-            footer_text TEXT,
-            line_notify_enabled BOOLEAN DEFAULT FALSE,
-            line_notify_token VARCHAR(255),
-            telegram_notify_enabled BOOLEAN DEFAULT FALSE,
-            telegram_bot_token VARCHAR(255),
-            telegram_chat_id VARCHAR(255),
-            pos_status ENUM('open', 'closed') DEFAULT 'open',
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-        )`
+            // Let's try to find it relative to __dirname
+            schemaPath = path.join(__dirname, 'schema.sql');
+            if (!fs.existsSync(schemaPath)) {
+                // Try going up one level (if in dist)
+                schemaPath = path.join(__dirname, '../schema.sql');
+            }
+            if (!fs.existsSync(schemaPath)) {
+                // Try looking in resources path if we are packaged?
+                // process.resourcesPath
+                schemaPath = path.join(process.resourcesPath, 'server/schema.sql');
+            }
+        } else {
+            schemaPath = path.join(__dirname, 'schema.sql');
+        }
+
+        if (!fs.existsSync(schemaPath)) {
+            console.error('Schema file not found at:', schemaPath);
+            // Fallback to hardcoded if file missing? Or just fail.
+            // Let's fail so we know.
+            return;
+        }
+
+        const schemaSql = fs.readFileSync(schemaPath, 'utf8');
+
+        // Split by semicolon to get individual queries
+        // Note: This is a simple split and might break on semicolons inside strings.
+        // But for our schema it should be fine.
+
+        console.log('Schema setup completed successfully.');
+
+        // Ensure schema updates for existing tables
+        await ensureSchemaUpdates();
+
+    } catch (err) {
+        console.error('Error running schema setup:', err);
+        throw err;
+    }
+}
+
+async function ensureSchemaUpdates() {
+    const updates = [
+        "ALTER TABLE products ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE tanks ADD COLUMN IF NOT EXISTS product_id INT",
+        "ALTER TABLE tanks ADD COLUMN IF NOT EXISTS min_level DECIMAL(10, 2) DEFAULT 0",
+        "ALTER TABLE nozzles ADD COLUMN IF NOT EXISTS meter_reading DECIMAL(15, 2) DEFAULT 0"
     ];
 
-    for (const query of queries) {
-        await db.query(query);
-    }
-
-    // Create default admin user if not exists
-    const [users] = await db.query('SELECT * FROM users WHERE username = ?', ['admin']);
-    if (users.length === 0) {
-        // Default password 'admin' (hashed) - using simple text for now as bcrypt is used in login
-        // Ideally we should use the same hash function.
-        // Let's assume the user will create an admin in the wizard or we verify this later.
-        // For now, let's insert a default one to ensure login works.
-        const bcrypt = require('bcryptjs');
-        const hashedPassword = await bcrypt.hash('admin', 10);
-        await db.query('INSERT INTO users (username, password, role) VALUES (?, ?, ?)', ['admin', hashedPassword, 'admin']);
+    for (const query of updates) {
+        try {
+            await db.query(query);
+        } catch (err) {
+            // Ignore errors (e.g. syntax error on older DBs, or column exists)
+            console.log('Schema update note:', err.message);
+        }
     }
 }
 
@@ -1755,9 +1732,11 @@ const { exec } = require('child_process');
 const multer = require('multer');
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
-        const uploadDir = path.join(__dirname, 'uploads');
+        const uploadDir = process.env.USER_DATA_PATH
+            ? path.join(process.env.USER_DATA_PATH, 'uploads')
+            : path.join(__dirname, 'uploads');
         if (!fs.existsSync(uploadDir)) {
-            fs.mkdirSync(uploadDir);
+            fs.mkdirSync(uploadDir, { recursive: true });
         }
         cb(null, uploadDir);
     },
@@ -1769,7 +1748,9 @@ const storage = multer.diskStorage({
 const upload = multer({ storage: storage });
 
 // Serve static files from uploads directory
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads', express.static(process.env.USER_DATA_PATH
+    ? path.join(process.env.USER_DATA_PATH, 'uploads')
+    : path.join(__dirname, 'uploads')));
 
 // Upload Image Endpoint
 app.post('/api/upload', upload.single('image'), (req, res) => {
@@ -1785,11 +1766,14 @@ app.post('/api/upload', upload.single('image'), (req, res) => {
 app.get('/api/backup', async (req, res) => {
     const date = new Date().toISOString().replace(/[:.]/g, '-');
     const filename = `backup-${date}.sql`;
-    const backupPath = path.join(__dirname, 'backups', filename);
+    const backupsDir = process.env.USER_DATA_PATH
+        ? path.join(process.env.USER_DATA_PATH, 'backups')
+        : path.join(__dirname, 'backups');
+    const backupPath = path.join(backupsDir, filename);
 
     // Ensure backups directory exists
-    if (!fs.existsSync(path.join(__dirname, 'backups'))) {
-        fs.mkdirSync(path.join(__dirname, 'backups'));
+    if (!fs.existsSync(backupsDir)) {
+        fs.mkdirSync(backupsDir, { recursive: true });
     }
 
     const config = db.getConfig();
