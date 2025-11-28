@@ -1,0 +1,192 @@
+import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
+import ReportViewer from '../../../components/admin/ReportViewer';
+
+const SalesByPayment = () => {
+    const location = useLocation();
+    const isDaily = location.pathname.includes('/daily');
+    const [data, setData] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    // Date Range State
+    const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
+    const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+
+    // Shift Range State
+    const [shifts, setShifts] = useState([]);
+    const [startShift, setStartShift] = useState('');
+    const [endShift, setEndShift] = useState('');
+
+    const [companyInfo, setCompanyInfo] = useState(null);
+
+    // Determine payment type from URL
+    let paymentType = '';
+    let titleType = '';
+    let titleTypeTH = '';
+    if (location.pathname.includes('sales-cash')) {
+        paymentType = 'cash';
+        titleType = 'Cash';
+        titleTypeTH = 'เงินสด';
+    } else if (location.pathname.includes('sales-transfer')) {
+        paymentType = 'promptpay'; // Assuming 'promptpay' is used for transfer
+        titleType = 'Transfer';
+        titleTypeTH = 'เงินโอน';
+    } else if (location.pathname.includes('sales-credit')) {
+        paymentType = 'credit';
+        titleType = 'Credit';
+        titleTypeTH = 'เครดิต';
+    }
+
+    useEffect(() => {
+        fetchSettings();
+        if (!isDaily) {
+            fetchShifts();
+        }
+    }, [isDaily]);
+
+    useEffect(() => {
+        if (isDaily) {
+            fetchData();
+        } else {
+            if (startShift && endShift) {
+                fetchData();
+            }
+        }
+    }, [startDate, endDate, startShift, endShift, isDaily, paymentType]);
+
+    const fetchSettings = async () => {
+        try {
+            const res = await fetch('http://localhost:3001/api/settings');
+            const data = await res.json();
+            setCompanyInfo(data);
+        } catch (err) {
+            console.error('Error fetching settings:', err);
+        }
+    };
+
+    const fetchShifts = async () => {
+        try {
+            const res = await fetch('http://localhost:3001/api/shifts');
+            const data = await res.json();
+            setShifts(data);
+            if (data.length > 0) {
+                setStartShift(data[0].id);
+                setEndShift(data[0].id);
+            }
+        } catch (err) {
+            console.error('Error fetching shifts:', err);
+        }
+    };
+
+    const fetchData = async () => {
+        setLoading(true);
+        try {
+            let url = `http://localhost:3001/api/reports/sales-by-payment?type=${paymentType}`;
+            if (isDaily) {
+                url += `&startDate=${startDate}&endDate=${endDate}`;
+            } else {
+                url += `&startShiftId=${startShift}&endShiftId=${endShift}`;
+            }
+
+            const res = await fetch(url);
+            const result = await res.json();
+            setData(result);
+        } catch (err) {
+            console.error('Error fetching report data:', err);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const columns = [
+        { header: 'เวลา (Time)', accessor: 'created_at', width: '20%', render: (row) => new Date(row.created_at).toLocaleTimeString('th-TH') },
+        { header: 'เลขที่รายการ (Tx ID)', accessor: 'transaction_id', width: '15%', align: 'center' },
+        { header: 'สินค้า (Product)', accessor: 'product_name', width: '25%' },
+        { header: 'สมาชิก (Member)', accessor: 'member_name', width: '20%', render: (row) => row.member_name || '-' },
+        { header: 'จำนวนเงิน (Amount)', accessor: 'amount', width: '20%', align: 'right', render: (row) => parseFloat(row.amount).toFixed(2) }
+    ];
+
+    const totalAmount = data.reduce((sum, row) => sum + parseFloat(row.amount || 0), 0);
+
+    const summary = {
+        created_at: 'รวมทั้งหมด (Total)',
+        amount: totalAmount.toFixed(2)
+    };
+
+    return (
+        <div className="h-full flex flex-col">
+            <div className="bg-white p-4 shadow mb-4 flex flex-wrap gap-4 items-center print:hidden">
+                {isDaily ? (
+                    <>
+                        <div>
+                            <label className="mr-2 font-bold">ตั้งแต่วันที่:</label>
+                            <input
+                                type="date"
+                                value={startDate}
+                                onChange={(e) => setStartDate(e.target.value)}
+                                className="border p-2 rounded"
+                            />
+                        </div>
+                        <div>
+                            <label className="mr-2 font-bold">ถึงวันที่:</label>
+                            <input
+                                type="date"
+                                value={endDate}
+                                onChange={(e) => setEndDate(e.target.value)}
+                                className="border p-2 rounded"
+                            />
+                        </div>
+                    </>
+                ) : (
+                    <>
+                        <div>
+                            <label className="mr-2 font-bold">ตั้งแต่กะที่:</label>
+                            <select
+                                value={startShift}
+                                onChange={(e) => setStartShift(e.target.value)}
+                                className="border p-2 rounded w-48"
+                            >
+                                {shifts.map(shift => (
+                                    <option key={shift.id} value={shift.id}>
+                                        #{shift.id} - {new Date(shift.start_time).toLocaleString('th-TH')}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="mr-2 font-bold">ถึงกะที่:</label>
+                            <select
+                                value={endShift}
+                                onChange={(e) => setEndShift(e.target.value)}
+                                className="border p-2 rounded w-48"
+                            >
+                                {shifts.map(shift => (
+                                    <option key={shift.id} value={shift.id}>
+                                        #{shift.id} - {new Date(shift.start_time).toLocaleString('th-TH')}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                    </>
+                )}
+                <button
+                    onClick={fetchData}
+                    className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+                >
+                    แสดงรายงาน (Refresh)
+                </button>
+            </div>
+
+            <ReportViewer
+                title={`รายงานยอดขาย${titleTypeTH} (${isDaily ? 'รายวัน' : 'รายกะ'})`}
+                subtitle={isDaily ? `วันที่: ${new Date(startDate).toLocaleDateString('th-TH')} - ${new Date(endDate).toLocaleDateString('th-TH')}` : `กะที่: ${startShift} ถึง ${endShift}`}
+                data={data}
+                columns={columns}
+                summary={summary}
+                companyInfo={companyInfo}
+            />
+        </div>
+    );
+};
+
+export default SalesByPayment;
