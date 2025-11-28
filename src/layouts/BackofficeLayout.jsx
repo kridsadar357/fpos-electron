@@ -10,6 +10,14 @@ const BackofficeLayout = () => {
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [isReportsOpen, setIsReportsOpen] = useState(false);
     const [isDailyReportsOpen, setIsDailyReportsOpen] = useState(false);
+    const [version, setVersion] = useState('');
+
+    React.useEffect(() => {
+        if (window.require) {
+            const { ipcRenderer } = window.require('electron');
+            ipcRenderer.invoke('get_version').then(ver => setVersion(ver));
+        }
+    }, []);
 
     const handleLogout = () => {
         logout();
@@ -25,7 +33,9 @@ const BackofficeLayout = () => {
                 <div className="p-6 border-b border-blue-800 flex justify-between items-center">
                     <div>
                         <h1 className="text-2xl font-bold whitespace-nowrap">Fuel POS Admin</h1>
-                        <p className="text-sm text-blue-300 mt-1 whitespace-nowrap">Backoffice System</p>
+                        <p className="text-sm text-blue-300 mt-1 whitespace-nowrap">
+                            Backoffice System {version && <span className="text-xs bg-blue-800 px-2 py-0.5 rounded-full text-blue-200">v{version}</span>}
+                        </p>
                     </div>
                 </div>
 

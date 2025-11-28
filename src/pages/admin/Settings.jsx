@@ -23,6 +23,10 @@ const Settings = () => {
     const [loading, setLoading] = useState(true);
     const fileInputRef = useRef(null);
 
+    const [showPasswordModal, setShowPasswordModal] = useState(false);
+    const [restoreFile, setRestoreFile] = useState(null);
+    const [restorePassword, setRestorePassword] = useState('');
+
     useEffect(() => {
         fetchSettings();
     }, []);
@@ -75,27 +79,64 @@ const Settings = () => {
         }
     };
 
-    const handleBackup = () => {
-        window.open('http://localhost:3001/api/backup', '_blank');
+    const handleBackup = async () => {
+        const toastId = toast.loading('กำลังสำรองข้อมูล...');
+        try {
+            const res = await fetch('http://localhost:3001/api/backup');
+            if (!res.ok) throw new Error('Backup failed');
+
+            const blob = await res.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+
+            // Try to get filename from Content-Disposition header
+            const contentDisposition = res.headers.get('Content-Disposition');
+            let filename = `backup-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.sql`;
+            if (contentDisposition) {
+                const filenameMatch = contentDisposition.match(/filename="?(.+)"?/);
+                if (filenameMatch && filenameMatch.length === 2)
+                    filename = filenameMatch[1];
+            }
+
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            toast.success('ดาวน์โหลดไฟล์สำรองสำเร็จ', { id: toastId });
+        } catch (err) {
+            console.error('Backup error:', err);
+            toast.error('การสำรองข้อมูลล้มเหลว', { id: toastId });
+        }
     };
 
     const handleRestoreClick = () => {
         fileInputRef.current.click();
     };
 
-    const handleFileChange = async (e) => {
+    const handleFileChange = (e) => {
         const file = e.target.files[0];
         if (!file) return;
+        setRestoreFile(file);
+        setRestorePassword('');
+        setShowPasswordModal(true);
+        e.target.value = null; // Reset file input
+    };
 
-        const password = prompt('กรุณากรอกรหัสผ่านเพื่อยืนยันการกู้คืนข้อมูล (Enter Password):');
-        if (password !== 'tar357') {
+    const confirmRestore = async () => {
+        setShowPasswordModal(false);
+
+        if (restorePassword !== 'tar357') {
             toast.error('รหัสผ่านไม่ถูกต้อง');
-            e.target.value = null; // Reset file input
+            setRestoreFile(null);
             return;
         }
 
+        if (!restoreFile) return;
+
         const formData = new FormData();
-        formData.append('file', file);
+        formData.append('file', restoreFile);
 
         const toastId = toast.loading('กำลังกู้คืนข้อมูล...');
 
@@ -115,7 +156,7 @@ const Settings = () => {
             console.error('Restore error:', err);
             toast.error('กู้คืนข้อมูลล้มเหลว', { id: toastId });
         } finally {
-            e.target.value = null; // Reset file input
+            setRestoreFile(null);
         }
     };
 
@@ -170,8 +211,8 @@ const Settings = () => {
                                 key={tab.id}
                                 onClick={() => setActiveTab(tab.id)}
                                 className={`p-4 text-left flex items-center transition-colors border-b border-gray-100 ${activeTab === tab.id
-                                        ? 'bg-blue-50 text-blue-600 border-r-4 border-r-blue-600 font-bold'
-                                        : 'text-gray-600 hover:bg-gray-100'
+                                    ? 'bg-blue-50 text-blue-600 border-r-4 border-r-blue-600 font-bold'
+                                    : 'text-gray-600 hover:bg-gray-100'
                                     }`}
                             >
                                 <span className="mr-3 text-lg">{tab.icon}</span>
@@ -427,6 +468,41 @@ const Settings = () => {
                     )}
                 </div>
             </div>
+
+            {/* Password Modal */}
+            {showPasswordModal && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-lg p-6 w-96 shadow-xl">
+                        <h3 className="text-lg font-bold mb-4 text-gray-800">ยืนยันการกู้คืนข้อมูล</h3>
+                        <p className="text-sm text-gray-600 mb-4">กรุณากรอกรหัสผ่านเพื่อยืนยัน (Enter Password)</p>
+                        <input
+                            type="password"
+                            value={restorePassword}
+                            onChange={(e) => setRestorePassword(e.target.value)}
+                            className="w-full p-2 border rounded mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            placeholder="Password"
+                            autoFocus
+                        />
+                        <div className="flex justify-end space-x-2">
+                            <button
+                                onClick={() => {
+                                    setShowPasswordModal(false);
+                                    setRestoreFile(null);
+                                }}
+                                className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded"
+                            >
+                                ยกเลิก
+                            </button>
+                            <button
+                                onClick={confirmRestore}
+                                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-bold"
+                            >
+                                ยืนยัน
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

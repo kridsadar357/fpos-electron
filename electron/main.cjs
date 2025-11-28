@@ -77,3 +77,76 @@ app.on('will-quit', () => {
         serverProcess = null;
     }
 });
+
+// --- Auto Updater ---
+const { autoUpdater } = require('electron-updater');
+const { ipcMain } = require('electron');
+
+// Configure logging
+autoUpdater.logger = require("electron-log");
+autoUpdater.logger.transports.file.level = "info";
+
+// Auto-download is true by default, but let's be explicit or control it
+autoUpdater.autoDownload = false;
+
+function sendStatusToWindow(text) {
+    autoUpdater.logger.info(text);
+    if (mainWindow) {
+        mainWindow.webContents.send('message', text);
+    }
+}
+
+autoUpdater.on('checking-for-update', () => {
+    sendStatusToWindow('Checking for update...');
+    if (mainWindow) mainWindow.webContents.send('update_status', { status: 'checking' });
+});
+
+autoUpdater.on('update-available', (info) => {
+    sendStatusToWindow('Update available.');
+    if (mainWindow) mainWindow.webContents.send('update_status', { status: 'available', info });
+});
+
+autoUpdater.on('update-not-available', (info) => {
+    sendStatusToWindow('Update not available.');
+    if (mainWindow) mainWindow.webContents.send('update_status', { status: 'not-available', info });
+});
+
+autoUpdater.on('error', (err) => {
+    sendStatusToWindow('Error in auto-updater. ' + err);
+    if (mainWindow) mainWindow.webContents.send('update_status', { status: 'error', error: err.message });
+});
+
+autoUpdater.on('download-progress', (progressObj) => {
+    let log_message = "Download speed: " + progressObj.bytesPerSecond;
+    log_message = log_message + ' - Downloaded ' + progressObj.percent + '%';
+    log_message = log_message + ' (' + progressObj.transferred + "/" + progressObj.total + ')';
+    sendStatusToWindow(log_message);
+    if (mainWindow) mainWindow.webContents.send('update_status', { status: 'downloading', progress: progressObj });
+});
+
+autoUpdater.on('update-downloaded', (info) => {
+    sendStatusToWindow('Update downloaded');
+    if (mainWindow) mainWindow.webContents.send('update_status', { status: 'downloaded', info });
+});
+
+// IPC Handlers
+ipcMain.on('check_for_update', () => {
+    autoUpdater.checkForUpdatesAndNotify();
+});
+
+ipcMain.on('download_update', () => {
+    autoUpdater.downloadUpdate();
+});
+
+ipcMain.on('restart_app', () => {
+    autoUpdater.quitAndInstall();
+});
+
+ipcMain.handle('get_version', () => {
+    return app.getVersion();
+});
+
+// Check for updates when app is ready (optional, or trigger from UI)
+app.on('ready', () => {
+    // autoUpdater.checkForUpdatesAndNotify(); // Can enable auto check on startup
+});

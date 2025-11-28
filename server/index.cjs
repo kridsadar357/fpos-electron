@@ -1751,7 +1751,7 @@ app.delete('/api/held-sales/:id', async (req, res) => {
 
 const { exec } = require('child_process');
 // const path = require('path'); // Removed duplicate
-const fs = require('fs');
+// const fs = require('fs'); // Removed duplicate
 const multer = require('multer');
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
@@ -1784,7 +1784,7 @@ app.post('/api/upload', upload.single('image'), (req, res) => {
 // Backup Database
 app.get('/api/backup', async (req, res) => {
     const date = new Date().toISOString().replace(/[:.]/g, '-');
-    const filename = `backup - ${date}.sql`;
+    const filename = `backup-${date}.sql`;
     const backupPath = path.join(__dirname, 'backups', filename);
 
     // Ensure backups directory exists
@@ -1792,14 +1792,24 @@ app.get('/api/backup', async (req, res) => {
         fs.mkdirSync(path.join(__dirname, 'backups'));
     }
 
-    // Command to dump database
-    // Assuming user is 'root' and no password as per previous context, adjust if needed
-    const cmd = `mysqldump - u root fuel_pos > "${backupPath}"`;
+    const config = db.getConfig();
+    const { host, user, password, database } = config;
+
+    // Construct command
+    // Note: putting password directly in command is not secure for shared systems but acceptable for local single-user app
+    // Better approach: use a config file for mysqldump, but this is simpler for now.
+    let cmd = `mysqldump -h ${host} -u ${user}`;
+    if (password) {
+        cmd += ` -p"${password}"`;
+    }
+    cmd += ` ${database} > "${backupPath}"`;
+
+    console.log('Executing backup command:', cmd.replace(/-p".*?"/, '-p"*****"')); // Log without password
 
     exec(cmd, (error, stdout, stderr) => {
         if (error) {
-            console.error(`Backup error: ${error.message} `);
-            return res.status(500).json({ error: 'Backup failed' });
+            console.error(`Backup error: ${error.message}`);
+            return res.status(500).json({ error: 'Backup failed: ' + error.message });
         }
         res.download(backupPath);
     });
@@ -1812,17 +1822,29 @@ app.post('/api/restore', upload.single('file'), async (req, res) => {
     }
 
     const filePath = req.file.path;
+    const config = db.getConfig();
+    const { host, user, password, database } = config;
 
     // Command to restore database
-    const cmd = `mysql - u root fuel_pos < "${filePath}"`;
+    let cmd = `mysql -h ${host} -u ${user}`;
+    if (password) {
+        cmd += ` -p"${password}"`;
+    }
+    cmd += ` ${database} < "${filePath}"`;
+
+    console.log('Executing restore command:', cmd.replace(/-p".*?"/, '-p"*****"'));
 
     exec(cmd, (error, stdout, stderr) => {
         // Clean up uploaded file
-        fs.unlinkSync(filePath);
+        try {
+            fs.unlinkSync(filePath);
+        } catch (e) {
+            console.error('Error deleting uploaded file:', e);
+        }
 
         if (error) {
-            console.error(`Restore error: ${error.message} `);
-            return res.status(500).json({ error: 'Restore failed' });
+            console.error(`Restore error: ${error.message}`);
+            return res.status(500).json({ error: 'Restore failed: ' + error.message });
         }
         res.json({ success: true, message: 'Database restored successfully' });
     });

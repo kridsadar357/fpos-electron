@@ -5,6 +5,7 @@ import { AuthProvider } from './context/AuthContext';
 import { ShiftProvider } from './context/ShiftContext';
 import { SalesProvider } from './contexts/SalesContext';
 import ProtectedRoute from './components/ProtectedRoute';
+import Updater from './components/Updater';
 import Login from './pages/Login';
 import POS from './pages/POS';
 import Sales from './pages/Sales';
@@ -167,8 +168,10 @@ function App() {
           </Router>
         </SalesProvider>
       </ShiftProvider>
+
+      <Updater />
       <Toaster />
-    </AuthProvider>
+    </AuthProvider >
   );
 }
 
